@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display};
+use std::{borrow::Cow, collections::BTreeMap, f32::consts::E, fmt::Display};
 
 use serde::Deserialize;
 
@@ -8,20 +8,40 @@ struct TagListResponse {
     tags: Vec<String>,
 }
 
-async fn auth(client: &reqwest::Client, image_name: &str) -> Result<String, ()> {
-    let mut base_url = reqwest::Url::parse("https://auth.docker.io/token").unwrap();
+#[derive(Debug)]
+pub enum AuthError {
+    SendRequest(reqwest::Error),
+    StatusCode(reqwest::StatusCode),
+    LoadingBytes(reqwest::Error),
+    JwtToken(jwt::Error),
+}
+
+#[derive(Debug)]
+struct AuthConfig {
+    realm: String,
+    service: String,
+    scope: String,
+}
+
+async fn auth(client: &reqwest::Client, conf: &AuthConfig) -> Result<String, AuthError> {
+    let mut base_url = reqwest::Url::parse(&conf.realm).unwrap();
     base_url
         .query_pairs_mut()
-        .append_pair("service", "registry.docker.io")
-        .append_pair("scope", &format!("repository:{image_name}:pull"))
+        .append_pair("service", &conf.service)
+        .append_pair("scope", &conf.scope)
+        .append_pair("client_id", "Nomad-VMonitor")
         .finish();
 
-    let resp = client.get(base_url).send().await.map_err(|e| ())?;
+    let resp = client
+        .get(base_url)
+        .send()
+        .await
+        .map_err(AuthError::SendRequest)?;
     if !resp.status().is_success() {
-        return Err(());
+        return Err(AuthError::StatusCode(resp.status()));
     }
 
-    let raw_content = resp.bytes().await.map_err(|e| ())?;
+    let raw_content = resp.bytes().await.map_err(AuthError::LoadingBytes)?;
 
     let content: serde_json::Value = serde_json::from_slice(&raw_content).unwrap();
 
@@ -33,47 +53,168 @@ async fn auth(client: &reqwest::Client, image_name: &str) -> Result<String, ()> 
         .as_str()
         .unwrap();
 
-    let jwt_res: jwt::Token<jwt::Header, serde_json::Value, jwt::Unverified> =
-        jwt::Token::parse_unverified(token).map_err(|e| ())?;
+    let _: jwt::Token<jwt::Header, serde_json::Value, jwt::Unverified> =
+        jwt::Token::parse_unverified(token).map_err(AuthError::JwtToken)?;
 
     Ok(token.to_string())
 }
 
-pub async fn get_tags(client: &reqwest::Client, image_name: &str) -> Result<Vec<String>, ()> {
-    let token = auth(client, image_name).await?;
+#[derive(Debug)]
+pub enum GetTagsError {
+    AuthError(AuthError),
+    FailedAuth,
+    SendRequest(reqwest::Error),
+    StatusCode(reqwest::StatusCode),
+    LoadingBytes(reqwest::Error),
+}
 
+enum FetchResult {
+    Ok(TagListResponse),
+    NeedsAuth(AuthConfig),
+    Err(GetTagsError),
+}
+
+async fn try_get_tags(
+    client: &reqwest::Client,
+    image: &Image,
+    token: Option<String>,
+) -> FetchResult {
     let registry_url = reqwest::Url::parse("https://registry.hub.docker.com").unwrap();
 
     let target_url = registry_url
-        .join(&format!("v2/{image_name}/tags/list"))
+        .join(&match &image.namespace {
+            Some(n) => format!("v2/{}/{}/tags/list", n, image.name),
+            None => format!("v2/library/{}/tags/list", image.name),
+        })
         .unwrap();
-    // dbg!(&target_url);
 
-    let resp = client
-        .get(target_url)
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(|e| ())?;
-
-    if !resp.status().is_success() {
-        dbg!(resp.status(), image_name);
-        return Err(());
+    let mut req = client.get(target_url);
+    if let Some(token) = token {
+        req = req.bearer_auth(token);
     }
 
-    let raw_content = resp.bytes().await.map_err(|e| ())?;
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => return FetchResult::Err(GetTagsError::SendRequest(e)),
+    };
 
-    let content: TagListResponse = serde_json::from_slice(&raw_content).unwrap();
+    let statuscode = resp.status();
+    let headers = resp.headers().clone();
 
-    Ok(content.tags)
+    let raw_content = match resp.bytes().await.map_err(GetTagsError::LoadingBytes) {
+        Ok(c) => c,
+        Err(e) => return FetchResult::Err(e),
+    };
+
+    if !statuscode.is_success() {
+        if statuscode.as_u16() == 401 {
+            let auth_header = match headers.get("www-authenticate") {
+                Some(h) => h,
+                None => return FetchResult::Err(GetTagsError::FailedAuth),
+            };
+
+            let auth_header_content = auth_header.to_str().unwrap();
+
+            let (_, raw_parts) = auth_header_content.split_once(' ').unwrap();
+
+            let mut parts = raw_parts
+                .split(',')
+                .filter_map(|part| part.split_once('='))
+                .map(|(key, val)| (key, val.replace('"', "")))
+                .collect::<BTreeMap<_, _>>();
+
+            return FetchResult::NeedsAuth(AuthConfig {
+                realm: parts.remove("realm").unwrap(),
+                service: parts.remove("service").unwrap(),
+                scope: parts.remove("scope").unwrap(),
+            });
+        }
+
+        return FetchResult::Err(GetTagsError::StatusCode(statuscode));
+    }
+
+    FetchResult::Ok(serde_json::from_slice(&raw_content).unwrap())
 }
 
+pub async fn get_tags(
+    client: &reqwest::Client,
+    image: &Image,
+) -> Result<Vec<String>, GetTagsError> {
+    let auth_conf = match try_get_tags(client, image, None).await {
+        FetchResult::Ok(r) => return Ok(r.tags),
+        FetchResult::NeedsAuth(conf) => conf,
+        FetchResult::Err(e) => return Err(e),
+    };
+
+    let token = auth(client, &auth_conf)
+        .await
+        .map_err(GetTagsError::AuthError)?;
+
+    match try_get_tags(client, image, Some(token)).await {
+        FetchResult::Ok(r) => Ok(r.tags),
+        FetchResult::NeedsAuth(_) => Err(GetTagsError::FailedAuth),
+        FetchResult::Err(e) => Err(e),
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Image {
-    name: String,
-    tag: RawTag<'static>,
+    pub registry: Cow<'static, str>,
+    pub namespace: Option<String>,
+    pub name: String,
+    pub tag: RawTag<'static>,
 }
 
-#[derive(Debug)]
+impl Image {
+    pub fn parse(raw: String) -> Result<Self, String> {
+        if raw.contains('$') {
+            return Err(raw);
+        }
+
+        let (raw_name, tag) = match raw.split_once(':') {
+            Some((first, second)) => (
+                first,
+                RawTag {
+                    tag: Cow::Owned(second.to_owned()),
+                },
+            ),
+            None => (
+                raw.as_str(),
+                RawTag {
+                    tag: Cow::Borrowed("latest"),
+                },
+            ),
+        };
+
+        let mut parts: Vec<_> = raw_name.split('/').collect();
+
+        if parts.is_empty() {
+            return Err(raw);
+        }
+        let registry = if parts.first().unwrap().contains('.') {
+            Cow::Owned(parts.remove(0).to_string())
+        } else {
+            Cow::Borrowed("registry.hub.docker.com")
+        };
+
+        let (namespace, name) = if parts.len() == 1 {
+            (None, parts.remove(0))
+        } else if parts.len() == 2 {
+            (Some(parts.remove(0).to_string()), parts.remove(0))
+        } else {
+            return Err(raw);
+        };
+
+        Ok(Self {
+            registry,
+            namespace,
+            name: name.to_string(),
+            tag,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct RawTag<'a> {
     tag: Cow<'a, str>,
 }
@@ -206,6 +347,45 @@ impl Version {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_image() {
+        assert_eq!(
+            Ok(Image {
+                registry: Cow::Borrowed("registry.hub.docker.com"),
+                namespace: Some("user".to_string()),
+                name: "test".to_string(),
+                tag: RawTag {
+                    tag: Cow::Borrowed("version")
+                }
+            }),
+            Image::parse("user/test:version".to_string()),
+        );
+
+        assert_eq!(
+            Ok(Image {
+                registry: Cow::Borrowed("registry.hub.docker.com"),
+                namespace: None,
+                name: "test".to_string(),
+                tag: RawTag {
+                    tag: Cow::Borrowed("version")
+                }
+            }),
+            Image::parse("test:version".to_string()),
+        );
+
+        assert_eq!(
+            Ok(Image {
+                registry: Cow::Borrowed("test.com"),
+                namespace: Some("user".to_string()),
+                name: "test".to_string(),
+                tag: RawTag {
+                    tag: Cow::Borrowed("version")
+                }
+            }),
+            Image::parse("test.com/user/test:version".to_string()),
+        );
+    }
 
     #[test]
     fn tag_latest() {

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use nomad_vmonitor::Client;
@@ -13,12 +13,6 @@ struct AppState {
 #[tokio::main]
 async fn main() {
     let machine_log = std::env::var("LOG_MACHINE").is_ok();
-
-    let current_path = std::env::current_dir().unwrap();
-    let config_path = match std::env::var("CONF_FILE") {
-        Ok(f) => PathBuf::from(f),
-        Err(_) => current_path.join("config.json"),
-    };
 
     tracing_subscriber::registry()
         .with(

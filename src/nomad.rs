@@ -4,30 +4,44 @@ pub type JobListResponse = Vec<JobListEntry>;
 
 #[derive(Debug, Deserialize)]
 pub struct JobListEntry {
-    pub ID: String,
-    ParentID: String,
-    Name: String,
-    Type: String,
-    Priority: usize,
+    #[serde(rename = "ID")]
+    pub id: String,
+    #[serde(rename = "ParentID")]
+    parentID: String,
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Type")]
+    type_: String,
+    #[serde(rename = "Priority")]
+    priority: usize,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ReadJobResponse {
-    pub Name: String,
-    pub ParentID: String,
-    pub TaskGroups: Vec<ReadJobTaskGroup>,
+    #[serde(rename = "ID")]
+    id: String,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "ParentID")]
+    pub parent_id: String,
+    #[serde(rename = "TaskGroups")]
+    pub task_groups: Vec<ReadJobTaskGroup>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ReadJobTaskGroup {
-    pub Name: String,
-    Count: usize,
-    pub Tasks: Vec<ReadJobTask>,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Count")]
+    count: usize,
+    #[serde(rename = "Tasks")]
+    pub tasks: Vec<ReadJobTask>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ReadJobTask {
-    pub Name: String,
+    #[serde(rename = "Name")]
+    pub name: String,
     #[serde(flatten)]
     pub config: ReadJobConfig,
 }

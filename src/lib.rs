@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use prometheus::{Encoder, Registry, TextEncoder};
 
@@ -58,12 +58,12 @@ impl Client {
         let tasks = {
             let mut tmp = Vec::new();
             for raw_task in raw_task_list {
-                let task = nomad::read_job(&self.client, &self.nomad_url, &raw_task.ID)
+                let task = nomad::read_job(&self.client, &self.nomad_url, &raw_task.id)
                     .await
                     .unwrap();
 
-                if !task.ParentID.is_empty() {
-                    tracing::warn!("Skipping Job that has ParentID - {:?}", task.Name);
+                if !task.parent_id.is_empty() {
+                    tracing::warn!("Skipping Job that has ParentID - {:?}", task.name);
                     continue;
                 }
 
@@ -75,11 +75,11 @@ impl Client {
         tracing::info!("Processing Jobs...");
 
         let job_task_iter = tasks.into_iter().flat_map(|job| {
-            job.TaskGroups.into_iter().flat_map(move |jgroup| {
-                let j_name = job.Name.clone();
-                let g_name = jgroup.Name.clone();
+            job.task_groups.into_iter().flat_map(move |jgroup| {
+                let j_name = job.name.clone();
+                let g_name = jgroup.name.clone();
                 jgroup
-                    .Tasks
+                    .tasks
                     .into_iter()
                     .map(move |task| (j_name.clone(), g_name.clone(), task))
             })
@@ -91,27 +91,27 @@ impl Client {
             for (jname, gname, task) in job_task_iter {
                 let get_version = move || async {
                     match task.config {
-                        nomad::ReadJobConfig::Docker { image } => {
-                            let (image_name, raw_image_tag) =
-                                image.split_once(':').unwrap_or((&image, "latest"));
+                        nomad::ReadJobConfig::Docker { image: raw_image } => {
+                            let image = match docker::Image::parse(raw_image) {
+                                Ok(i) => i,
+                                Err(raw) => {
+                                    tracing::warn!("Could not parse Image: {:?}", raw);
+                                    return None;
+                                }
+                            };
 
-                            if image_name.contains('$') {
-                                tracing::warn!("Skipping Image check");
-                                return None;
-                            }
-
-                            if image_name.contains('.') {
-                                tracing::error!("Image Contains '.': {:?}", image_name);
+                            if image.name.contains('.') {
+                                tracing::error!("Image Contains '.': {:?}", image.name);
                                 // return None;
                             }
 
-                            let image_tag = docker::RawTag::new(raw_image_tag);
-                            let image_version = match image_tag.parse_version() {
+                            let image_version = match image.tag.parse_version() {
                                 Ok(v) => v,
                                 Err(e) => {
                                     tracing::error!(
-                                        "Parsing Image ({image_name}) Version: {:?}",
-                                        image_tag
+                                        "Parsing Image ({}) Version: {:?}",
+                                        image.name,
+                                        image.tag
                                     );
 
                                     return None;
@@ -125,10 +125,10 @@ impl Client {
                                 });
                             }
 
-                            let tags = match docker::get_tags(&self.client, &image_name).await {
+                            let tags = match docker::get_tags(&self.client, &image).await {
                                 Ok(t) => t,
                                 Err(e) => {
-                                    tracing::error!("{:?}", e);
+                                    tracing::error!("Getting Tags for '{:?}': {:?}", image, e);
                                     return None;
                                 }
                             };
@@ -174,7 +174,7 @@ impl Client {
                     None => continue,
                 };
 
-                tmp.push((jname, gname, task.Name, result));
+                tmp.push((jname, gname, task.name, result));
             }
 
             tmp
