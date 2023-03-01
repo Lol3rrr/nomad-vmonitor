@@ -14,6 +14,7 @@ pub struct JobListEntry {
 #[derive(Debug, Deserialize)]
 pub struct ReadJobResponse {
     pub Name: String,
+    pub ParentID: String,
     pub TaskGroups: Vec<ReadJobTaskGroup>,
 }
 

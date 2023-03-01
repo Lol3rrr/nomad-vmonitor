@@ -47,7 +47,7 @@ impl Client {
         }
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn check(&self) {
         tracing::info!("Running Check");
         tracing::info!("Loading Tasks...");
@@ -61,6 +61,11 @@ impl Client {
                 let task = nomad::read_job(&self.client, &self.nomad_url, &raw_task.ID)
                     .await
                     .unwrap();
+
+                if !task.ParentID.is_empty() {
+                    tracing::warn!("Skipping Job that has ParentID - {:?}", task.Name);
+                    continue;
+                }
 
                 tmp.push(task);
             }
@@ -177,6 +182,7 @@ impl Client {
 
         tracing::info!("Updating Metrics...");
 
+        self.general.clear();
         for (job_name, group_name, task_name, version) in updates {
             self.general
                 .update(&job_name, &group_name, &task_name, version);

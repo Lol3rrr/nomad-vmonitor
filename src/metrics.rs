@@ -41,6 +41,11 @@ impl Metrics {
         }
     }
 
+    pub fn clear(&self) {
+        self.out_of_date.reset();
+        self.up_to_date.reset();
+    }
+
     pub fn update(&self, job: &str, group: &str, task: &str, version: UpdatedVersion) {
         let labels = [("job", job), ("group", group), ("task", task)]
             .into_iter()
