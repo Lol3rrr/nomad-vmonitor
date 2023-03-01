@@ -100,11 +100,6 @@ impl Client {
                                 }
                             };
 
-                            if image.name.contains('.') {
-                                tracing::error!("Image Contains '.': {:?}", image.name);
-                                // return None;
-                            }
-
                             let image_version = match image.tag.parse_version() {
                                 Ok(v) => v,
                                 Err(e) => {
@@ -162,9 +157,7 @@ impl Client {
                         nomad::ReadJobConfig::RawExec {} => {
                             tracing::warn!("Not implemented for Raw-Exec");
 
-                            Some(metrics::UpdatedVersion::UpToDate {
-                                version: "".to_string(),
-                            })
+                            None
                         }
                     }
                 };

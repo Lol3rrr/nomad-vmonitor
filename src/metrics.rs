@@ -4,6 +4,7 @@ use std::collections::HashMap;
 pub struct Metrics {
     up_to_date: prometheus::GaugeVec,
     out_of_date: prometheus::GaugeVec,
+    versions: prometheus::GaugeVec,
 }
 
 #[derive(Debug)]
@@ -32,18 +33,27 @@ impl Metrics {
         )
         .unwrap();
 
+        let versions = prometheus::GaugeVec::new(
+            prometheus::Opts::new("versions", "The Versions for the Jobs/Tasks"),
+            &["job", "group", "task", "current", "newest"],
+        )
+        .unwrap();
+
         reg.register(Box::new(uptodate.clone())).unwrap();
         reg.register(Box::new(out_of_date.clone())).unwrap();
+        reg.register(Box::new(versions.clone())).unwrap();
 
         Self {
             up_to_date: uptodate,
             out_of_date,
+            versions,
         }
     }
 
     pub fn clear(&self) {
         self.out_of_date.reset();
         self.up_to_date.reset();
+        self.versions.reset();
     }
 
     pub fn update(&self, job: &str, group: &str, task: &str, version: UpdatedVersion) {
@@ -58,10 +68,40 @@ impl Metrics {
             UpdatedVersion::UpToDate { version } => {
                 uptodate_metric.set(1.0);
                 outofdate_metric.set(0.0);
+
+                self.versions
+                    .get_metric_with(
+                        &[
+                            ("job", job),
+                            ("group", group),
+                            ("task", task),
+                            ("current", &version),
+                            ("newest", &version),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    )
+                    .unwrap()
+                    .set(1.0);
             }
             UpdatedVersion::OutOfDate { current, newest } => {
                 uptodate_metric.set(0.0);
                 outofdate_metric.set(1.0);
+
+                self.versions
+                    .get_metric_with(
+                        &[
+                            ("job", job),
+                            ("group", group),
+                            ("task", task),
+                            ("current", &current),
+                            ("newest", &newest),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    )
+                    .unwrap()
+                    .set(1.0);
             }
         };
     }

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap, f32::consts::E, fmt::Display};
+use std::{borrow::Cow, collections::BTreeMap, fmt::Display};
 
 use serde::Deserialize;
 
