@@ -34,7 +34,10 @@ impl Metrics {
         .unwrap();
 
         let versions = prometheus::GaugeVec::new(
-            prometheus::Opts::new("versions", "The Versions for the Jobs/Tasks"),
+            prometheus::Opts::new(
+                "versions",
+                "The current and newest possible Versions for the Jobs/Tasks",
+            ),
             &["job", "group", "task", "current", "newest"],
         )
         .unwrap();
