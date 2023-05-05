@@ -1,5 +1,5 @@
 # Based on https://kerkour.com/rust-small-docker-image
-FROM rust:1.66 AS builder
+FROM rust:1.69 AS builder
 
 WORKDIR /server/nomad-vmonitor
 

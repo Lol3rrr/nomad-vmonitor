@@ -6,6 +6,8 @@ mod docker;
 mod metrics;
 mod nomad;
 
+mod eventstream;
+
 #[derive(Debug)]
 pub struct Client {
     client: reqwest::Client,
@@ -38,12 +40,15 @@ impl Client {
     }
 
     pub async fn run(self: Arc<Self>) {
-        let sleep_time = Duration::from_secs(60 * 15);
+        let sleep_time = Duration::from_secs(15 * 60);
+        let event = eventstream::EventStream::new(self.client.clone(), self.nomad_url.clone());
+        let (event_runner, notify) = event.run();
+        tokio::spawn(event_runner);
 
         loop {
             self.check().await;
 
-            tokio::time::sleep(sleep_time).await;
+            let _ = tokio::time::timeout(sleep_time, notify.notified()).await;
         }
     }
 

@@ -17,7 +17,7 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "nomad_vmonitor=trace".into()),
+                .unwrap_or_else(|_| "nomad_vmonitor=info".into()),
         )
         .with((machine_log).then(|| tracing_subscriber::fmt::layer().json()))
         .with((!machine_log).then(|| tracing_subscriber::fmt::layer().pretty()))
