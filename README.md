@@ -1,5 +1,12 @@
 # Nomad-vmonitor
-Monitors your Nomad-Cluster for new Versions of Software to deploy
+Monitors your Nomad-Cluster for new Versions of Software that is deployed
+
+## Metrics Endpoint
+Listens on `0.0.0.0:3000` and provides a `/metrics` endpoint to query prometheus metrics
+
+## Environment Variables
+* `NOMAD_ADDR`: The Nomad Server Address (defaults to localhost)
+* `NOMAD_PORT`: The Nomad Server Port (defaults to 4646
 
 ## How it works
 It periodically loads all the current Jobs registered in Nomad and then goes through them
