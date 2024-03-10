@@ -63,9 +63,14 @@ impl Client {
         let tasks = {
             let mut tmp = Vec::new();
             for raw_task in raw_task_list {
-                let task = nomad::read_job(&self.client, &self.nomad_url, &raw_task.id)
-                    .await
-                    .unwrap();
+                let task = match nomad::read_job(&self.client, &self.nomad_url, &raw_task.id).await
+                {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::error!("Reading Job from Nomad");
+                        continue;
+                    }
+                };
 
                 if !task.parent_id.is_empty() {
                     tracing::warn!("Skipping Job that has ParentID - {:?}", task.name);
