@@ -1,5 +1,6 @@
 use std::{future::Future, sync::Arc, time::Duration};
 
+use bytes::BytesMut;
 use reqwest::Url;
 use serde::Deserialize;
 
@@ -22,6 +23,8 @@ impl EventStream {
     async fn listen(mut self, notify: Arc<tokio::sync::Notify>) {
         let req_url = self.base_url.join("v1/event/stream").expect("");
 
+        let mut pending = BytesMut::new();
+
         loop {
             let mut specific_url = req_url.clone();
             specific_url.set_query(Some(&format!("index={}", self.index)));
@@ -41,14 +44,19 @@ impl EventStream {
                         continue;
                     }
 
-                    let event: EventResponse = match serde_json::from_slice(&chunk) {
+                    pending.extend(chunk.as_ref());
+
+                    let event: EventResponse = match serde_json::from_slice(&pending) {
                         Ok(e) => e,
                         Err(err) => {
                             tracing::error!("Parsing Event: {:?}", err);
                             tracing::error!("Chunk: {:?}", chunk);
+                            tracing::error!("Pending: {:?}", pending);
                             continue;
                         }
                     };
+
+                    pending.clear();
 
                     tracing::debug!("Event: {:#?}", event);
 
