@@ -45,6 +45,7 @@ impl EventStream {
                         Ok(e) => e,
                         Err(err) => {
                             tracing::error!("Parsing Event: {:?}", err);
+                            tracing::error!("Chunk: {:?}", chunk);
                             continue;
                         }
                     };
