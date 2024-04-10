@@ -50,8 +50,8 @@ impl EventStream {
                         Ok(e) => e,
                         Err(err) => {
                             tracing::error!("Parsing Event: {:?}", err);
-                            tracing::error!("Chunk: {:?}", chunk);
-                            tracing::error!("Pending: {:?}", pending);
+                            // tracing::error!("Chunk: {:?}", chunk);
+                            // tracing::error!("Pending: {:?}", pending);
                             continue;
                         }
                     };
