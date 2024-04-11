@@ -56,9 +56,13 @@ impl Client {
     async fn check(&self) {
         tracing::info!("Running Check");
         tracing::info!("Loading Tasks...");
-        let raw_task_list = nomad::list_jobs(&self.client, &self.nomad_url)
-            .await
-            .unwrap();
+        let raw_task_list = match nomad::list_jobs(&self.client, &self.nomad_url).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!("Loading List: {:?}", e);
+                return;
+            }
+        };
 
         let tasks = {
             let mut tmp = Vec::new();
